@@ -6,14 +6,7 @@ import log from "loglevel";
 import { LOGIN_TYPE, UX_MODE_TYPE } from "../utils/enums";
 import { getVerifierId, loginToConnectionMap, padUrlString, validateAndConstructUrl } from "../utils/helpers";
 import AbstractLoginHandler from "./AbstractLoginHandler";
-import {
-  AUTH0_JWT_LOGIN_TYPE,
-  Auth0ClientOptions,
-  Auth0UserInfo,
-  LoginWindowResponse,
-  TorusGenericObject,
-  TorusVerifierResponse,
-} from "./interfaces";
+import { Auth0ClientOptions, Auth0UserInfo, LoginWindowResponse, TorusGenericObject, TorusVerifierResponse } from "./interfaces";
 
 export default class JwtHandler extends AbstractLoginHandler {
   private readonly SCOPE: string = "openid profile email";
@@ -37,6 +30,7 @@ export default class JwtHandler extends AbstractLoginHandler {
   }
 
   setFinalUrl(): void {
+    localStorage.setItem("state", this.state);
     const { domain } = this.jwtParams;
     const finalUrl = validateAndConstructUrl(domain);
     finalUrl.pathname += finalUrl.pathname.endsWith("/") ? "authorize" : "/authorize";
@@ -50,7 +44,7 @@ export default class JwtHandler extends AbstractLoginHandler {
         prompt: this.PROMPT,
         redirect_uri: this.redirect_uri,
         scope: this.SCOPE,
-        connection: loginToConnectionMap[this.typeOfLogin as AUTH0_JWT_LOGIN_TYPE],
+        connection: loginToConnectionMap[this.typeOfLogin],
         nonce: this.nonce,
       },
       clonedParams

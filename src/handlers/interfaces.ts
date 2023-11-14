@@ -1,5 +1,4 @@
-import { TORUS_NETWORK_TYPE } from "@toruslabs/constants";
-import { TorusKey } from "@toruslabs/torus.js";
+import type { TORUS_NETWORK_TYPE } from "@toruslabs/constants";
 
 import { Sentry } from "../sentry";
 import { AGGREGATE_VERIFIER_TYPE, LOGIN_TYPE, TORUS_METHOD_TYPE, UX_MODE_TYPE } from "../utils/enums";
@@ -71,6 +70,20 @@ export interface ILoginHandler {
   handleLoginWindow(params: { locationReplaceOnRedirect?: boolean; popupFeatures?: string }): Promise<LoginWindowResponse>;
 }
 
+export interface TorusKeyPub {
+  pubKey?: {
+    pub_key_X: string;
+    pub_key_Y: string;
+  };
+}
+
+export interface TorusKey extends TorusKeyPub {
+  publicAddress: string;
+  privateKey: string;
+  metadataNonce: string;
+  typeOfUser: "v1" | "v2";
+}
+
 export interface TorusAggregateVerifierResponse {
   userInfo: (TorusVerifierResponse & LoginWindowResponse)[];
 }
@@ -124,15 +137,16 @@ export interface CustomAuthArgs {
   baseUrl: string;
 
   /**
-   * Specify a custom metadata host for legacy networks
+   * Specify a custom metadata host
    * @defaultValue https://metadata.tor.us
    */
   metadataUrl?: string;
 
   /**
    * Torus Network to target options: mainnet | testnet | cyan | aqua
+   * @defaultValue mainnet
    */
-  network: TORUS_NETWORK_TYPE;
+  network?: TORUS_NETWORK_TYPE;
 
   /**
    * This option is used to specify whether to enable logging
@@ -349,7 +363,7 @@ export interface Auth0ClientOptions extends BaseLoginOptions {
   /**
    * The field in jwt token which maps to verifier id
    */
-  verifierIdField?: keyof Auth0UserInfo;
+  verifierIdField?: string;
 
   /**
    * Whether the verifier id field is case sensitive
@@ -417,14 +431,3 @@ export interface RedirectResult {
   hashParameters?: Record<string, string>;
   args: SingleLoginParams | AggregateLoginParams | HybridAggregateLoginParams;
 }
-
-export type AUTH0_JWT_LOGIN_TYPE = "apple" | "github" | "linkedin" | "twitter" | "weibo" | "line" | "email_password" | "passwordless";
-
-export type AggregateVerifierParams = {
-  verify_params: {
-    verifier_id: string;
-    idtoken: string;
-  }[];
-  sub_verifier_ids: string[];
-  verifier_id: string;
-};

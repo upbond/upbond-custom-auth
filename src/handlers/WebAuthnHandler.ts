@@ -1,5 +1,4 @@
 import { get } from "@toruslabs/http-helpers";
-import base64url from "base64url";
 import deepmerge from "lodash.merge";
 
 import { LOGIN_TYPE, UX_MODE_TYPE } from "../utils/enums";
@@ -26,8 +25,7 @@ export default class WebAuthnHandler extends AbstractLoginHandler {
   }
 
   setFinalUrl(): void {
-    const { webauthnURL } = this.customState || {};
-    const finalUrl = webauthnURL ? new URL(webauthnURL) : new URL("https://webauthn.openlogin.com");
+    const finalUrl = new URL("https://webauthn.openlogin.com");
     const clonedParams = JSON.parse(JSON.stringify(this.jwtParams || {}));
     const finalJwtParams = deepmerge(
       {
@@ -69,7 +67,7 @@ export default class WebAuthnHandler extends AbstractLoginHandler {
           rpOrigin,
           credId,
           transports,
-        } = JSON.parse(base64url.decode(extraParams)));
+        } = JSON.parse(atob(extraParams)));
       } catch (error) {
         log.warn("unable to parse extraParams", error);
         ({

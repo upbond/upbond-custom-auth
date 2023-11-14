@@ -15,9 +15,7 @@ class PopupHandler extends EventEmitter {
 
   iClosedWindow: boolean;
 
-  timeout: number;
-
-  constructor({ url, target, features, timeout = 30000 }: { url: URL; target?: string; features?: string; timeout?: number }) {
+  constructor({ url, target, features }: { url: URL; target?: string; features?: string }) {
     super();
     this.url = url;
     this.target = target || "_blank";
@@ -25,7 +23,6 @@ class PopupHandler extends EventEmitter {
     this.window = undefined;
     this.windowTimer = undefined;
     this.iClosedWindow = false;
-    this.timeout = timeout;
     this._setupTimer();
   }
 
@@ -34,13 +31,11 @@ class PopupHandler extends EventEmitter {
       setInterval(() => {
         if (this.window && this.window.closed) {
           clearInterval(this.windowTimer);
-          setTimeout(() => {
-            if (!this.iClosedWindow) {
-              this.emit("close");
-            }
-            this.iClosedWindow = false;
-            this.window = undefined;
-          }, this.timeout);
+          if (!this.iClosedWindow) {
+            this.emit("close");
+          }
+          this.iClosedWindow = false;
+          this.window = undefined;
         }
         if (this.window === undefined) clearInterval(this.windowTimer);
       }, 500)
@@ -49,7 +44,6 @@ class PopupHandler extends EventEmitter {
 
   open(): Promise<void> {
     this.window = window.open(this.url.href, this.target, this.features);
-    if (!this.window) throw new Error("popup window is blocked");
     if (this.window?.focus) this.window.focus();
     return Promise.resolve();
   }

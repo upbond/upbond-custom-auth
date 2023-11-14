@@ -1,4 +1,3 @@
-import base64url from "base64url";
 import Bowser from "bowser";
 
 import { Auth0UserInfo, TorusGenericObject } from "../handlers/interfaces";
@@ -26,7 +25,7 @@ export function eventToPromise<T>(emitter: EmitterType): Promise<T> {
   });
 }
 
-// These are the default connection names used by auth0
+// These are the connection names used by auth0
 export const loginToConnectionMap = {
   [LOGIN.APPLE]: "apple",
   [LOGIN.GITHUB]: "github",
@@ -58,7 +57,7 @@ function caseSensitiveField(field: string, isCaseSensitive?: boolean): string {
 export const getVerifierId = (
   userInfo: Auth0UserInfo,
   typeOfLogin: LOGIN_TYPE,
-  verifierIdField?: keyof Auth0UserInfo,
+  verifierIdField?: string,
   isVerifierIdCaseSensitive = true
 ): string => {
   const { name, sub } = userInfo;
@@ -84,7 +83,7 @@ export const handleRedirectParameters = (
   hash: string,
   queryParameters: TorusGenericObject
 ): { error: string; instanceParameters: TorusGenericObject; hashParameters: TorusGenericObject } => {
-  const hashParameters: TorusGenericObject = hash.split("&").reduce((result: Record<string, string>, item) => {
+  const hashParameters: TorusGenericObject = hash.split("&").reduce((result, item) => {
     const [part0, part1] = item.split("=");
     result[part0] = part1;
     return result;
@@ -92,26 +91,27 @@ export const handleRedirectParameters = (
   log.info(hashParameters, queryParameters);
   let instanceParameters: TorusGenericObject = {};
   let error = "";
+  hashParameters.state = localStorage.getItem("state");
   if (Object.keys(hashParameters).length > 0 && hashParameters.state) {
-    instanceParameters = JSON.parse(base64url.decode(decodeURIComponent(decodeURIComponent(hashParameters.state)))) || {};
+    instanceParameters = JSON.parse(atob(decodeURIComponent(decodeURIComponent(hashParameters.state)))) || {};
     error = hashParameters.error_description || hashParameters.error || error;
   } else if (Object.keys(queryParameters).length > 0 && queryParameters.state) {
-    instanceParameters = JSON.parse(base64url.decode(decodeURIComponent(decodeURIComponent(queryParameters.state)))) || {};
+    instanceParameters = JSON.parse(atob(decodeURIComponent(decodeURIComponent(queryParameters.state)))) || {};
     if (queryParameters.error) error = queryParameters.error;
   }
+  localStorage.removeItem("state");
   return { error, instanceParameters, hashParameters };
 };
 
 export function storageAvailable(type: REDIRECT_PARAMS_STORAGE_METHOD_TYPE): boolean {
   let storage: Storage;
   try {
-    storage = window[type as "sessionStorage" | "localStorage"];
+    storage = window[type];
     const x = "__storage_test__";
     storage.setItem(x, x);
     storage.removeItem(x);
     return true;
-  } catch (error: unknown) {
-    const e = error as { code?: number; name?: string };
+  } catch (e) {
     return (
       e &&
       // everything except Firefox
@@ -198,20 +198,7 @@ export const validateAndConstructUrl = (domain: string): URL => {
   try {
     const url = new URL(decodeURIComponent(domain));
     return url;
-  } catch (error: unknown) {
-    throw new Error(`${(error as Error)?.message || ""}, Note: Your jwt domain: (i.e ${domain}) must have http:// or https:// prefix`);
+  } catch (error) {
+    throw new Error(`${error?.message || ""}, Note: Your jwt domain: (i.e ${domain}) must have http:// or https:// prefix`);
   }
 };
-
-export function isMobileOrTablet(): boolean {
-  const browser = Bowser.getParser(navigator.userAgent);
-  const platform = browser.getPlatform();
-  return platform.type === Bowser.PLATFORMS_MAP.tablet || platform.type === Bowser.PLATFORMS_MAP.mobile;
-}
-
-export function getTimeout(typeOfLogin: LOGIN_TYPE) {
-  if ((typeOfLogin === LOGIN.FACEBOOK || typeOfLogin === LOGIN.LINE) && isMobileOrTablet()) {
-    return 1000 * 60; // 60 seconds to finish the login
-  }
-  return 1000 * 10; // 10 seconds
-}

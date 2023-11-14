@@ -1,8 +1,7 @@
 import { BroadcastChannel } from "@toruslabs/broadcast-channel";
-import base64url from "base64url";
 
 import { LOGIN_TYPE, UX_MODE, UX_MODE_TYPE } from "../utils/enums";
-import { broadcastChannelOptions, getTimeout, randomId } from "../utils/helpers";
+import { broadcastChannelOptions, randomId } from "../utils/helpers";
 import log from "../utils/loglevel";
 import PopupHandler from "../utils/PopupHandler";
 import { Auth0ClientOptions, ILoginHandler, LoginWindowResponse, PopupResponse, TorusGenericObject, TorusVerifierResponse } from "./interfaces";
@@ -27,7 +26,7 @@ abstract class AbstractLoginHandler implements ILoginHandler {
 
   get state(): string {
     return encodeURIComponent(
-      base64url.encode(
+      window.btoa(
         JSON.stringify({
           ...(this.customState || {}),
           instanceId: this.nonce,
@@ -40,7 +39,7 @@ abstract class AbstractLoginHandler implements ILoginHandler {
   }
 
   handleLoginWindow(params: { locationReplaceOnRedirect?: boolean; popupFeatures?: string }): Promise<LoginWindowResponse> {
-    const verifierWindow = new PopupHandler({ url: this.finalURL, features: params.popupFeatures, timeout: getTimeout(this.typeOfLogin) });
+    const verifierWindow = new PopupHandler({ url: this.finalURL, features: params.popupFeatures });
     if (this.uxMode === UX_MODE.REDIRECT) {
       verifierWindow.redirect(params.locationReplaceOnRedirect);
     } else {
@@ -93,13 +92,7 @@ abstract class AbstractLoginHandler implements ILoginHandler {
           };
           window.addEventListener("message", postMessageEventHandler);
         }
-        try {
-          verifierWindow.open();
-        } catch (error) {
-          log.error(error);
-          reject(error);
-          return;
-        }
+        verifierWindow.open();
         verifierWindow.once("close", () => {
           if (bc) bc.close();
           reject(new Error("user closed popup"));
