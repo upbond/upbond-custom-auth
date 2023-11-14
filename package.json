@@ -1,6 +1,6 @@
 {
-  "name": "@toruslabs/customauth",
-  "version": "13.0.0",
+  "name": "@upbond/customauth",
+  "version": "1.0.0",
   "description": "CustomAuth login with torus to get user private key",
   "main": "dist/customauth.cjs.js",
   "module": "dist/customauth.esm.js",
@@ -82,12 +82,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/torusresearch/CustomAuth.git"
+    "url": "git+https://github.com/upbond/upbond-custom-auth.git"
   },
   "bugs": {
-    "url": "https://github.com/torusresearch/CustomAuth/issues"
+    "url": "https://github.com/upbond/upbond-custom-auth/issues"
   },
-  "homepage": "https://github.com/torusresearch/CustomAuth#readme",
+  "homepage": "https://github.com/upbond/upbond-custom-auth#readme",
   "keywords": [
     "CustomAuth",
     "customauth",
