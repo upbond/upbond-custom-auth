@@ -1,0 +1,93 @@
+{
+  "name": "@toruslabs/customauth",
+  "version": "17.0.0",
+  "description": "CustomAuth login with torus to get user private key",
+  "main": "dist/customauth.cjs.js",
+  "module": "dist/customauth.esm.js",
+  "unpkg": "dist/customauth.umd.min.js",
+  "jsdelivr": "dist/customauth.umd.min.js",
+  "types": "dist/types/index.d.ts",
+  "scripts": {
+    "build": "torus-scripts build",
+    "start": "torus-scripts start",
+    "release": "torus-scripts release",
+    "lint:ts": "eslint --fix 'src/**/*.ts'",
+    "prepack": "npm run build",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepare": "husky install"
+  },
+  "files": [
+    "dist",
+    "src",
+    "serviceworker"
+  ],
+  "peerDependencies": {
+    "@babel/runtime": "^7.x",
+    "@sentry/types": "^7.x"
+  },
+  "peerDependenciesMeta": {
+    "@sentry/types": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@chaitanyapotti/register-service-worker": "^1.7.3",
+    "@toruslabs/broadcast-channel": "^9.0.0",
+    "@toruslabs/constants": "^13.0.2",
+    "@toruslabs/eccrypto": "^4.0.0",
+    "@toruslabs/fetch-node-details": "^13.0.2",
+    "@toruslabs/http-helpers": "^5.0.0",
+    "@toruslabs/metadata-helpers": "^5.0.0",
+    "@toruslabs/torus.js": "^12.0.1",
+    "base64url": "^3.0.1",
+    "bowser": "^2.11.0",
+    "events": "^3.3.0",
+    "jwt-decode": "^3.1.2",
+    "lodash.merge": "^4.6.2",
+    "loglevel": "^1.8.1"
+  },
+  "devDependencies": {
+    "@sentry/types": "^7.73.0",
+    "@toruslabs/config": "^2.0.2",
+    "@toruslabs/eslint-config-typescript": "^3.0.1",
+    "@toruslabs/torus-scripts": "^5.0.5",
+    "@types/lodash.merge": "^4.6.7",
+    "eslint": "^8.51.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^14.0.1",
+    "prettier": "^3.0.3",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.2.2"
+  },
+  "author": "Torus Labs",
+  "license": "MIT",
+  "lint-staged": {
+    "!(*d).{js,ts}": [
+      "eslint --cache --fix",
+      "prettier --write"
+    ],
+    "*.{json, md}": [
+      "prettier --write"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/torusresearch/CustomAuth.git"
+  },
+  "bugs": {
+    "url": "https://github.com/torusresearch/CustomAuth/issues"
+  },
+  "homepage": "https://github.com/torusresearch/CustomAuth#readme",
+  "keywords": [
+    "CustomAuth",
+    "customauth",
+    "torus-direct-auth",
+    "torus nodes",
+    "torus-embed",
+    "direct auth"
+  ],
+  "engines": {
+    "node": ">=18.x",
+    "npm": ">=9.x"
+  }
+}
