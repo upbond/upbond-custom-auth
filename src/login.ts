@@ -5,10 +5,8 @@ import { UserManager } from "oidc-client";
 
 import createHandler from "./handlers/HandlerFactory";
 import {
-  AggregateLoginParams,
   CustomAuthArgs,
   ExtraParams,
-  HybridAggregateLoginParams,
   ILoginHandler,
   InitParams,
   LoginWindowResponse,
@@ -16,16 +14,12 @@ import {
   RedirectResultParams,
   SingleLoginParams,
   SubVerifierDetails,
-  TorusAggregateLoginResponse,
-  TorusHybridAggregateLoginResponse,
   TorusKey,
-  TorusLoginResponse,
   TorusSubVerifierInfo,
-  TorusVerifierResponse,
 } from "./handlers/interfaces";
 import { registerServiceWorker } from "./registerServiceWorker";
 import SentryHandler from "./sentry";
-import { AGGREGATE_VERIFIER, LOGIN, SENTRY_TXNS, TORUS_METHOD, UX_MODE, UX_MODE_TYPE } from "./utils/enums";
+import { LOGIN, SENTRY_TXNS, TORUS_METHOD, UX_MODE, UX_MODE_TYPE } from "./utils/enums";
 import { handleRedirectParameters, isFirefox, padUrlString } from "./utils/helpers";
 import log from "./utils/loglevel";
 import StorageHelper from "./utils/StorageHelper";
@@ -140,7 +134,7 @@ class CustomAuth {
     this.isInitialized = true;
   }
 
-  async triggerLogin(args: SingleLoginParams): Promise<TorusLoginResponse> {
+  async triggerLogin(args: SingleLoginParams) {
     const { verifier, typeOfLogin, clientId, jwtParams, hash, queryParameters, customState, registerOnly } = args;
     log.info("Verifier: ", verifier);
     if (!this.isInitialized) {
@@ -175,6 +169,33 @@ class CustomAuth {
       if (this.config.uxMode === UX_MODE.REDIRECT) return null;
     }
 
+    const userInfo = await loginHandler.getUserInfo(loginParams);
+    return {
+      userInfo: {
+        ...userInfo,
+        ...loginParams,
+      },
+    };
+  }
+
+  async SyncToTorusBlockchain(args) {
+    const { verifier, typeOfLogin, clientId, jwtParams, hash, queryParameters, customState, registerOnly } = args;
+    const { error, hashParameters, instanceParameters } = handleRedirectParameters(hash, queryParameters);
+    if (error) throw new Error(error);
+    const { access_token: accessToken, id_token: idToken, ...rest } = hashParameters;
+    // State has to be last here otherwise it will be overwritten
+    const loginParams = { accessToken, idToken, ...rest, state: instanceParameters };
+    const loginHandler: ILoginHandler = createHandler({
+      typeOfLogin,
+      clientId,
+      verifier,
+      redirect_uri: this.config.redirect_uri,
+      redirectToOpener: this.config.redirectToOpener,
+      jwtParams,
+      uxMode: this.config.uxMode,
+      customState,
+      registerOnly,
+    });
     const userInfo = await loginHandler.getUserInfo(loginParams);
     if (registerOnly) {
       const nodeTx = this.sentryHandler.startTransaction({
@@ -217,15 +238,17 @@ class CustomAuth {
       userInfo.extraVerifierParams
     );
     return {
-      ...torusKey,
-      userInfo: {
-        ...userInfo,
-        ...loginParams,
+      result: {
+        ...torusKey,
+        userInfo: {
+          ...userInfo,
+          ...loginParams,
+        },
       },
     };
   }
 
-  async triggerAggregateLogin(args: AggregateLoginParams): Promise<TorusAggregateLoginResponse> {
+  /*  async triggerAggregateLogin(args: AggregateLoginParams) {
     // This method shall break if any of the promises fail. This behaviour is intended
     const { aggregateVerifierType, verifierIdentifier, subVerifierDetailsArray } = args;
     if (!this.isInitialized) {
@@ -299,7 +322,7 @@ class CustomAuth {
     };
   }
 
-  async triggerHybridAggregateLogin(args: HybridAggregateLoginParams): Promise<TorusHybridAggregateLoginResponse> {
+  async triggerHybridAggregateLogin(args: HybridAggregateLoginParams) {
     const { singleLogin, aggregateLoginParams } = args;
     // This method shall break if any of the promises fail. This behaviour is intended
     if (!this.isInitialized) {
@@ -385,7 +408,7 @@ class CustomAuth {
       },
       aggregateLogins: [torusKey2],
     };
-  }
+  } */
 
   async getTorusKey(
     verifier: string,
@@ -456,7 +479,7 @@ class CustomAuth {
     return this.torus.getPostboxKeyFrom1OutOf1(privKey, nonce);
   }
 
-  async getRedirectResult({ replaceUrl = true, clearLoginDetails = true }: RedirectResultParams = {}): Promise<RedirectResult> {
+  async getUserinfoAndStates({ replaceUrl }: RedirectResultParams = {}): Promise<RedirectResult> {
     await this.init({ skipInit: true });
     const url = new URL(window.location.href);
     const hash = url.hash.substring(1);
@@ -483,9 +506,7 @@ class CustomAuth {
     const { args, method, ...rest } = await this.storageHelper.retrieveLoginDetails(instanceId);
     log.info(args, method);
 
-    if (clearLoginDetails) {
-      this.storageHelper.clearLoginDetailsStorage(instanceId);
-    }
+    this.storageHelper.clearLoginDetailsStorage(instanceId);
 
     if (error) {
       return { error, state: instanceParameters || {}, method, result: {}, hashParameters, args };
@@ -499,7 +520,7 @@ class CustomAuth {
         methodArgs.hash = hash;
         methodArgs.queryParameters = queryParams;
         result = await this.triggerLogin(methodArgs);
-      } else if (method === TORUS_METHOD.TRIGGER_AGGREGATE_LOGIN) {
+      } /* else if (method === TORUS_METHOD.TRIGGER_AGGREGATE_LOGIN) {
         const methodArgs = args as AggregateLoginParams;
         methodArgs.subVerifierDetailsArray.forEach((x) => {
           x.hash = hash;
@@ -511,7 +532,7 @@ class CustomAuth {
         methodArgs.singleLogin.hash = hash;
         methodArgs.singleLogin.queryParameters = queryParams;
         result = await this.triggerHybridAggregateLogin(methodArgs);
-      }
+      } */
     } catch (err) {
       log.error(err);
       return {

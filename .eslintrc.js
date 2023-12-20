@@ -1,5 +1,3 @@
-require("@rushstack/eslint-patch/modern-module-resolution");
-
 module.exports = {
   root: true,
   extends: ["@toruslabs/eslint-config-typescript"],
@@ -12,5 +10,6 @@ module.exports = {
   },
   rules: {
     camelcase: 0,
+    "prettier/prettier": ["error", { endOfLine: "auto" }],
   },
 };
