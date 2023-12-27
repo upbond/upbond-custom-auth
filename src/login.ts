@@ -1,17 +1,18 @@
 import { TORUS_NETWORK } from "@toruslabs/constants";
 import { NodeDetailManager } from "@toruslabs/fetch-node-details";
+import { get } from "@toruslabs/http-helpers";
 import Torus, { keccak256 } from "@toruslabs/torus.js";
 import { UserManager } from "oidc-client";
 
 import createHandler from "./handlers/HandlerFactory";
 import {
+  Auth0UserInfo,
   CustomAuthArgs,
   ExtraParams,
   ILoginHandler,
   InitParams,
   LoginWindowResponse,
   RedirectResult,
-  RedirectResultParams,
   SingleLoginParams,
   SubVerifierDetails,
   TorusKey,
@@ -20,7 +21,7 @@ import {
 import { registerServiceWorker } from "./registerServiceWorker";
 import SentryHandler from "./sentry";
 import { LOGIN, SENTRY_TXNS, TORUS_METHOD, UX_MODE, UX_MODE_TYPE } from "./utils/enums";
-import { handleRedirectParameters, isFirefox, padUrlString } from "./utils/helpers";
+import { getVerifierId, handleRedirectParameters, isFirefox, padUrlString } from "./utils/helpers";
 import log from "./utils/loglevel";
 import StorageHelper from "./utils/StorageHelper";
 
@@ -179,77 +180,30 @@ class CustomAuth {
   }
 
   async SyncToTorusBlockchain(args) {
-    const { verifier, typeOfLogin, clientId, jwtParams, hash, queryParameters, customState, registerOnly } = args;
-    const { error, hashParameters, instanceParameters } = handleRedirectParameters(hash, queryParameters);
-    if (error) throw new Error(error);
-    const { access_token: accessToken, id_token: idToken, ...rest } = hashParameters;
-    // State has to be last here otherwise it will be overwritten
-    const loginParams = { accessToken, idToken, ...rest, state: instanceParameters };
-    const loginHandler: ILoginHandler = createHandler({
-      typeOfLogin,
-      clientId,
-      verifier,
-      redirect_uri: this.config.redirect_uri,
-      redirectToOpener: this.config.redirectToOpener,
-      jwtParams,
-      uxMode: this.config.uxMode,
-      customState,
-      registerOnly,
-    });
-    const userInfo = await loginHandler.getUserInfo(loginParams);
-    if (registerOnly) {
-      const nodeTx = this.sentryHandler.startTransaction({
-        name: SENTRY_TXNS.FETCH_NODE_DETAILS,
-      });
-      const { torusNodeEndpoints, torusNodePub } = await this.nodeDetailManager.getNodeDetails({ verifier, verifierId: userInfo.verifierId });
-      this.sentryHandler.finishTransaction(nodeTx);
-      const lookupTx = this.sentryHandler.startTransaction({
-        name: SENTRY_TXNS.PUB_ADDRESS_LOOKUP,
-      });
-      const torusPubKey = await this.torus.getPublicAddress(torusNodeEndpoints, torusNodePub, { verifier, verifierId: userInfo.verifierId }, true);
-      this.sentryHandler.finishTransaction(lookupTx);
-      const res = {
-        userInfo: {
-          ...userInfo,
-          ...loginParams,
+    const { verifier, accessToken, idToken, verifierId, jwtParams, typeOfLogin } = args;
+    let verifierId1;
+    // required variable
+    if (!verifierId) {
+      const { domain, verifierIdField, isVerifierIdCaseSensitive, user_info_route = "userinfo" } = jwtParams;
+      const domainUrl = new URL(domain);
+      const userInf = await get<Auth0UserInfo>(`${padUrlString(domainUrl)}${user_info_route}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
         },
-      };
-      if (typeof torusPubKey === "string") {
-        throw new Error("should have returned extended pub key");
-      }
-      const torusKey: TorusKey = {
-        typeOfUser: torusPubKey.typeOfUser,
-        pubKey: {
-          pub_key_X: torusPubKey.X,
-          pub_key_Y: torusPubKey.Y,
-        },
-        publicAddress: torusPubKey.address,
-        privateKey: null,
-        metadataNonce: null,
-      };
-      return { ...res, ...torusKey };
+      });
+      verifierId1 = getVerifierId(userInf, typeOfLogin, verifierIdField, isVerifierIdCaseSensitive);
+      log.info("verifierId", verifierId1);
     }
-
-    const torusKey = await this.getTorusKey(
-      verifier,
-      userInfo.verifierId,
-      { verifier_id: userInfo.verifierId },
-      loginParams.idToken || loginParams.accessToken,
-      userInfo.extraVerifierParams
-    );
+    const torusKey = await this.getTorusKey(verifier, verifierId || verifierId1, { verifier_id: verifierId || verifierId1 }, idToken || accessToken);
     return {
       result: {
         ...torusKey,
-        userInfo: {
-          ...userInfo,
-          ...loginParams,
-        },
       },
     };
   }
 
   /*  async triggerAggregateLogin(args: AggregateLoginParams) {
-    // This method shall break if any of the promises fail. This behaviour is intended
+    // This method shall break if any of the promises fail. This behaviour is 
     const { aggregateVerifierType, verifierIdentifier, subVerifierDetailsArray } = args;
     if (!this.isInitialized) {
       throw new Error("Not initialized yet");
@@ -479,12 +433,11 @@ class CustomAuth {
     return this.torus.getPostboxKeyFrom1OutOf1(privKey, nonce);
   }
 
-  async getUserinfoAndStates({ replaceUrl }: RedirectResultParams = {}): Promise<RedirectResult> {
+  async getUserinfoAndStates(replaceUrl, hashParams): Promise<RedirectResult> {
     await this.init({ skipInit: true });
-    const url = new URL(window.location.href);
-    const hash = url.hash.substring(1);
     const queryParams = {};
-    url.searchParams.forEach((value, key) => {
+    const params = new URLSearchParams(hashParams);
+    params.forEach((value, key) => {
       queryParams[key] = value;
     });
 
@@ -493,11 +446,7 @@ class CustomAuth {
       window.history.replaceState(null, "", cleanUrl);
     }
 
-    if (!hash && Object.keys(queryParams).length === 0) {
-      throw new Error("Unable to fetch result from OAuth login");
-    }
-
-    const { error, instanceParameters, hashParameters } = handleRedirectParameters(hash, queryParams);
+    const { error, instanceParameters, hashParameters } = handleRedirectParameters(hashParams, queryParams);
 
     const { instanceId } = instanceParameters;
 
@@ -517,7 +466,7 @@ class CustomAuth {
     try {
       if (method === TORUS_METHOD.TRIGGER_LOGIN) {
         const methodArgs = args as SubVerifierDetails & { registerOnly?: boolean };
-        methodArgs.hash = hash;
+        methodArgs.hash = hashParams;
         methodArgs.queryParameters = queryParams;
         result = await this.triggerLogin(methodArgs);
       } /* else if (method === TORUS_METHOD.TRIGGER_AGGREGATE_LOGIN) {
