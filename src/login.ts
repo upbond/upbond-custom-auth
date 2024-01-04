@@ -5,6 +5,7 @@ import { UserManager } from "oidc-client";
 
 import createHandler from "./handlers/HandlerFactory";
 import {
+  AggregateLoginParams,
   CustomAuthArgs,
   ExtraParams,
   ILoginHandler,
@@ -15,10 +16,11 @@ import {
   SubVerifierDetails,
   TorusKey,
   TorusSubVerifierInfo,
+  TorusVerifierResponse,
 } from "./handlers/interfaces";
 import { registerServiceWorker } from "./registerServiceWorker";
 import SentryHandler from "./sentry";
-import { LOGIN, SENTRY_TXNS, TORUS_METHOD, UX_MODE, UX_MODE_TYPE } from "./utils/enums";
+import { AGGREGATE_VERIFIER, LOGIN, SENTRY_TXNS, TORUS_METHOD, UX_MODE, UX_MODE_TYPE } from "./utils/enums";
 import { handleRedirectParameters, isFirefox, padUrlString } from "./utils/helpers";
 import log from "./utils/loglevel";
 import StorageHelper from "./utils/StorageHelper";
@@ -177,6 +179,79 @@ class CustomAuth {
     };
   }
 
+  async triggerAggregateLogin(args: AggregateLoginParams) {
+    // This method shall break if any of the promises fail. This behaviour is
+    const { aggregateVerifierType, verifierIdentifier, subVerifierDetailsArray } = args;
+    if (!this.isInitialized) {
+      throw new Error("Not initialized yet");
+    }
+    if (!aggregateVerifierType || !verifierIdentifier || !Array.isArray(subVerifierDetailsArray)) {
+      throw new Error("Invalid params");
+    }
+    if (aggregateVerifierType === AGGREGATE_VERIFIER.SINGLE_VERIFIER_ID && subVerifierDetailsArray.length !== 1) {
+      throw new Error("Single id verifier can only have one sub verifier");
+    }
+    const userInfoPromises: Promise<TorusVerifierResponse>[] = [];
+    const loginParamsArray: LoginWindowResponse[] = [];
+    for (const subVerifierDetail of subVerifierDetailsArray) {
+      const { clientId, typeOfLogin, verifier, jwtParams, hash, queryParameters, customState } = subVerifierDetail;
+      const loginHandler: ILoginHandler = createHandler({
+        typeOfLogin,
+        clientId,
+        verifier,
+        redirect_uri: this.config.redirect_uri,
+        redirectToOpener: this.config.redirectToOpener,
+        jwtParams,
+        uxMode: this.config.uxMode,
+        customState,
+      });
+      // We let the user login to each verifier in a loop. Don't wait for key derivation here.!
+      let loginParams: LoginWindowResponse;
+      if (hash && queryParameters) {
+        const { error, hashParameters, instanceParameters } = handleRedirectParameters(hash, queryParameters);
+        if (error) throw new Error(error);
+        const { access_token: accessToken, id_token: idToken, ...rest } = hashParameters;
+        // State has to be last here otherwise it will be overwritten
+        loginParams = { accessToken, idToken, ...rest, state: instanceParameters };
+      } else {
+        this.storageHelper.clearOrphanedLoginDetails();
+        if (this.config.uxMode === UX_MODE.REDIRECT) {
+          await this.storageHelper.storeLoginDetails({ method: TORUS_METHOD.TRIGGER_AGGREGATE_LOGIN, args }, loginHandler.nonce);
+        }
+        this.initOIDC(jwtParams.domain, clientId, this.config.redirect_uri);
+        this.userManager.signinRedirect();
+        if (this.config.uxMode === UX_MODE.REDIRECT) return null;
+      }
+      // Fail the method even if one promise fails
+      userInfoPromises.push(loginHandler.getUserInfo(loginParams));
+      loginParamsArray.push(loginParams);
+    }
+    const _userInfoArray = await Promise.all(userInfoPromises);
+    const userInfoArray = _userInfoArray.map((userInfo) => ({ ...userInfo, aggregateVerifier: verifierIdentifier }));
+    const aggregateVerifierParams = { verify_params: [], sub_verifier_ids: [], verifier_id: "" };
+    const aggregateIdTokenSeeds = [];
+    let aggregateVerifierId = "";
+    let extraVerifierParams = {};
+    for (let index = 0; index < subVerifierDetailsArray.length; index += 1) {
+      const loginParams = loginParamsArray[index];
+      const { idToken, accessToken } = loginParams;
+      const userInfo = userInfoArray[index];
+      aggregateVerifierParams.verify_params.push({ verifier_id: userInfo.verifierId, idtoken: idToken || accessToken });
+      aggregateVerifierParams.sub_verifier_ids.push(userInfo.verifier);
+      aggregateIdTokenSeeds.push(idToken || accessToken);
+      aggregateVerifierId = userInfo.verifierId; // using last because idk
+      extraVerifierParams = userInfo.extraVerifierParams;
+    }
+    aggregateIdTokenSeeds.sort();
+    const aggregateIdToken = keccak256(Buffer.from(aggregateIdTokenSeeds.join(String.fromCharCode(29)), "utf8")).slice(2);
+    aggregateVerifierParams.verifier_id = aggregateVerifierId;
+    const torusKey = await this.getTorusKey(verifierIdentifier, aggregateVerifierId, aggregateVerifierParams, aggregateIdToken, extraVerifierParams);
+    return {
+      ...torusKey,
+      userInfo: userInfoArray.map((x, index) => ({ ...x, ...loginParamsArray[index] })),
+    };
+  }
+
   async SyncToTorusBlockchain(args) {
     const { verifier, accessToken, idToken, verifierId } = args;
     const torusKey = await this.getTorusKey(verifier, verifierId, { verifier_id: verifierId }, idToken || accessToken);
@@ -256,9 +331,13 @@ class CustomAuth {
     return this.torus.getPostboxKeyFrom1OutOf1(privKey, nonce);
   }
 
-  async getUserinfoAndStates(replaceUrl, hashParams): Promise<RedirectResult> {
+  async getUserinfoAndStates(replaceUrl, hashParams?): Promise<RedirectResult> {
     await this.init({ skipInit: true });
     const queryParams = {};
+    if (!hashParams) {
+      const url = new URL(window.location.href);
+      hashParams = url.hash.substring(1);
+    }
     const params = new URLSearchParams(hashParams);
     params.forEach((value, key) => {
       queryParams[key] = value;
@@ -292,6 +371,13 @@ class CustomAuth {
         methodArgs.hash = hashParams;
         methodArgs.queryParameters = queryParams;
         result = await this.triggerLogin(methodArgs);
+      } else if (method === TORUS_METHOD.TRIGGER_AGGREGATE_LOGIN) {
+        const methodArgs = args as AggregateLoginParams;
+        methodArgs.subVerifierDetailsArray.forEach((x) => {
+          x.hash = hashParams;
+          x.queryParameters = queryParams;
+        });
+        result = await this.triggerAggregateLogin(methodArgs);
       }
     } catch (err) {
       log.error(err);
