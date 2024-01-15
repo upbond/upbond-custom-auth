@@ -1,11 +1,13 @@
 import { TORUS_NETWORK } from "@toruslabs/constants";
 import { NodeDetailManager } from "@toruslabs/fetch-node-details";
+import { get } from "@toruslabs/http-helpers";
 import Torus, { keccak256 } from "@toruslabs/torus.js";
 import { UserManager } from "oidc-client";
 
 import createHandler from "./handlers/HandlerFactory";
 import {
   AggregateLoginParams,
+  Auth0UserInfo,
   CustomAuthArgs,
   ExtraParams,
   ILoginHandler,
@@ -21,7 +23,7 @@ import {
 import { registerServiceWorker } from "./registerServiceWorker";
 import SentryHandler from "./sentry";
 import { AGGREGATE_VERIFIER, LOGIN, SENTRY_TXNS, TORUS_METHOD, UX_MODE, UX_MODE_TYPE } from "./utils/enums";
-import { handleRedirectParameters, isFirefox, padUrlString } from "./utils/helpers";
+import { getVerifierId, handleRedirectParameters, isFirefox, padUrlString } from "./utils/helpers";
 import log from "./utils/loglevel";
 import StorageHelper from "./utils/StorageHelper";
 
@@ -92,11 +94,12 @@ class CustomAuth {
   }
 
   async initOIDC(auth, client, redirect_uri): Promise<void> {
+    redirect_uri = `${redirect_uri}/callback`;
     const oidcConfig = {
       authority: auth,
       client_id: client,
-      response_type: "token id_token",
-      scope: "openid profile email offline_access",
+      response_type: "code",
+      scope: "openid profile email",
       redirect_uri,
       extraQueryParams: { prompt: "login" },
     };
@@ -253,8 +256,21 @@ class CustomAuth {
   }
 
   async SyncToTorusBlockchain(args) {
-    const { verifier, accessToken, idToken, verifierId } = args;
-    const torusKey = await this.getTorusKey(verifier, verifierId, { verifier_id: verifierId }, idToken || accessToken);
+    const { verifier, accessToken, idToken, verifierId, jwtParams, typeOfLogin } = args;
+    let verifierId1;
+    // required variable
+    if (!verifierId) {
+      const { domain, verifierIdField, isVerifierIdCaseSensitive, user_info_route = "userinfo" } = jwtParams;
+      const domainUrl = new URL(domain);
+      const userInf = await get<Auth0UserInfo>(`${padUrlString(domainUrl)}${user_info_route}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      verifierId1 = getVerifierId(userInf, typeOfLogin, verifierIdField, isVerifierIdCaseSensitive);
+      log.info("verifierId", verifierId1);
+    }
+    const torusKey = await this.getTorusKey(verifier, verifierId || verifierId1, { verifier_id: verifierId || verifierId1 }, idToken || accessToken);
     return {
       result: {
         ...torusKey,
